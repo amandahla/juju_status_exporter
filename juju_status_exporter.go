@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"time"
@@ -81,14 +82,32 @@ func getJujuStatus() (*JujuStatus, error) {
 	return &jujuStatus, nil
 }
 
+func lookupEnvOrString(key string, defaultVal string) string {
+	if val, ok := os.LookupEnv(key); ok {
+		return val
+	}
+	return defaultVal
+}
+
+func lookupEnvOrInt(key string, defaultVal int) int {
+	if val, ok := os.LookupEnv(key); ok {
+		v, err := strconv.Atoi(val)
+		if err != nil {
+			log.Fatalf("LookupEnvOrInt[%s]: %v", key, err)
+		}
+		return v
+	}
+	return defaultVal
+}
+
 func main() {
 	var pushGatewayURL string
 	var modelName string
 	var interval int
 
-	flag.StringVar(&pushGatewayURL, "push_gateway", "", "The Pushgateway URL to push metrics to. If not set, metrics will be exposed on /metrics.")
-	flag.StringVar(&modelName, "model_name", "instance_1", "The model name to use as the instance label in the Pushgateway.")
-	flag.IntVar(&interval, "interval", 30, "The interval (in seconds) to push metrics to the Pushgateway. Ignored if push_gateway is not set.")
+	flag.StringVar(&pushGatewayURL, "push_gateway", lookupEnvOrString("JUJU_STATUS_EXPORTER_PUSH_GW", "http://localhost:9091/"), "The Pushgateway URL to push metrics to. If not set, metrics will be exposed on /metrics.")
+	flag.StringVar(&modelName, "model_name", lookupEnvOrString("JUJU_MODEL", "model_name_1"), "The model name to use as the instance label in the Pushgateway.")
+	flag.IntVar(&interval, "interval", lookupEnvOrInt("JUJU_STATUS_EXPORTER_INTERVAL", 30), "The interval (in seconds) to push metrics to the Pushgateway. Ignored if push_gateway is not set.")
 	flag.Parse()
 
 	jujuStatus, err := getJujuStatus()
