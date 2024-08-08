@@ -2,6 +2,8 @@
 
 Prometheus exporter for juju status output in Go.
 
+Built with go1.22.6.
+
 ## Requirement
 
 juju status is set.
@@ -18,9 +20,13 @@ make build
 
 The following flags are available:
 
-- **`-push_gateway`**: URL of the Prometheus Pushgateway to push metrics to. If not set, the script will expose metrics via HTTP.
+- **`-port`**: The port on which the exporter will start listening.
 - **`-model_name`**: Label for the `instance` grouping in the Pushgateway. Default is `"instance_1"`.
-- **`-period`**: Interval (in seconds) for pushing metrics to the Pushgateway. Default is 30 seconds.
+
+Also, the following environment variables can be used:
+
+- **`JUJU_MODEL`**
+- **`JUJU_STATUS_EXPORTER_PORT`**
 
 ### Examples
 
@@ -28,8 +34,4 @@ The following flags are available:
    ```sh
    ./juju_exporter -model_name=testing
    ```
-
-2. **Push Metrics to Pushgateway with Default Period**:
-   ```sh
-   ./juju_exporter -push_gateway=http://my-prometheus-pushgateway -model_name=testing
    ```

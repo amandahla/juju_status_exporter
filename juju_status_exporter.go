@@ -8,11 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"time"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/client_golang/prometheus/push"
 )
 
 // JujuStatus is a struct to hold the juju status JSON data
@@ -37,7 +36,7 @@ func NewJujuCollector(jujuStatus *JujuStatus, modelName string) *JujuCollector {
 		appStatusDesc: prometheus.NewDesc(
 			"juju_status_applications",
 			"Status of Juju applications",
-			[]string{"charm_name", "charm_rev", "charm_channel", "model_name"}, nil,
+			[]string{"charm_name", "charm_rev", "charm_channel", "model_name", "application_name"}, nil,
 		),
 		jujuStatus: jujuStatus,
 		modelName:  modelName,
@@ -52,7 +51,7 @@ func (collector *JujuCollector) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect is called by the Prometheus registry when collecting metrics.
 func (collector *JujuCollector) Collect(ch chan<- prometheus.Metric) {
-	for _, app := range collector.jujuStatus.Applications {
+	for name, app := range collector.jujuStatus.Applications {
 		ch <- prometheus.MustNewConstMetric(
 			collector.appStatusDesc,
 			prometheus.GaugeValue,
@@ -61,6 +60,7 @@ func (collector *JujuCollector) Collect(ch chan<- prometheus.Metric) {
 			strconv.Itoa(app.CharmRev),
 			app.CharmChannel,
 			collector.modelName,
+			name,
 		)
 	}
 }
@@ -101,13 +101,11 @@ func lookupEnvOrInt(key string, defaultVal int) int {
 }
 
 func main() {
-	var pushGatewayURL string
 	var modelName string
-	var interval int
+	var port string
 
-	flag.StringVar(&pushGatewayURL, "push_gateway", lookupEnvOrString("JUJU_STATUS_EXPORTER_PUSH_GW", "http://localhost:9091/"), "The Pushgateway URL to push metrics to. If not set, metrics will be exposed on /metrics.")
 	flag.StringVar(&modelName, "model_name", lookupEnvOrString("JUJU_MODEL", "model_name_1"), "The model name to use as the instance label in the Pushgateway.")
-	flag.IntVar(&interval, "interval", lookupEnvOrInt("JUJU_STATUS_EXPORTER_INTERVAL", 30), "The interval (in seconds) to push metrics to the Pushgateway. Ignored if push_gateway is not set.")
+	flag.StringVar(&port, "port", lookupEnvOrString("JUJU_STATUS_EXPORTER_PORT", "8080"), "The port on which the exporter will start listening")
 	flag.Parse()
 
 	jujuStatus, err := getJujuStatus()
@@ -115,28 +113,14 @@ func main() {
 		log.Fatalf("Error getting juju status: %v", err)
 	}
 
-	collector := NewJujuCollector(jujuStatus, modelName)
+	// case JUJU_MODEL is admin/model
+	modelNameParts := strings.Split(modelName, "/")
+	modelNameFmt := modelNameParts[len(modelNameParts)-1]
 
-	if pushGatewayURL != "" {
-		// Push metrics to the Pushgateway
-		registry := prometheus.NewRegistry()
-		registry.MustRegister(collector)
+	collector := NewJujuCollector(jujuStatus, modelNameFmt)
 
-		for {
-			if err := push.New(pushGatewayURL, "juju_exporter").
-				Collector(collector).
-				Grouping("job", "juju").
-				Grouping("instance", modelName).
-				Push(); err != nil {
-				log.Printf("Could not push to Pushgateway: %v", err)
-			}
-			time.Sleep(time.Duration(interval) * time.Second)
-		}
-	} else {
-		// Expose metrics via HTTP
-		prometheus.MustRegister(collector)
-		http.Handle("/metrics", promhttp.Handler())
-		log.Println("Beginning to serve on port :8080")
-		log.Fatal(http.ListenAndServe(":8080", nil))
-	}
+	prometheus.MustRegister(collector)
+	http.Handle("/metrics", promhttp.Handler())
+	log.Printf("Listening on port: %s", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
